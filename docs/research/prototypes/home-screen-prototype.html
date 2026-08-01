@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<!--
+  PROTOTYPE — throwaway. Fall Launcher home-screen look, for wayfinder ticket
+  "Fall Launcher v1 feature scope" (#7). Question: how does the home screen render,
+  especially manual favorites vs. usage-based suggestions?
+  Four structurally-different variants, switch via ?variant=A|B|C|D, floating bar, or arrow keys.
+  Not production. No framework, no persistence.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fall Launcher — home screen prototype</title>
+<style>
+  :root {
+    /* Material You-ish dynamic palette (warm "fall" seed) */
+    --accent: #d98a4e;
+    --accent-dim: #b5723f;
+    --on-surface: #f3ece4;
+    --on-surface-dim: #a99f93;
+    --suggest-dim: #8a8175;
+    --bg-a: #24170f;
+    --bg-b: #3a2415;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    background: #111;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--on-surface);
+  }
+  .stage { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .caption { color: #999; font-size: 13px; letter-spacing: .3px; }
+  /* Phone frame */
+  .phone {
+    width: 360px; height: 740px; border-radius: 42px;
+    background:
+      radial-gradient(120% 80% at 30% 0%, var(--bg-b), var(--bg-a) 70%),
+      linear-gradient(160deg, #2b1a10, #1a1109);
+    box-shadow: 0 0 0 10px #0a0a0a, 0 30px 60px rgba(0,0,0,.6);
+    position: relative; overflow: hidden;
+    padding: 46px 0 30px;
+  }
+  .statusbar {
+    position: absolute; top: 14px; left: 0; right: 0;
+    display: flex; justify-content: space-between; padding: 0 26px;
+    font-size: 12px; color: var(--on-surface-dim);
+  }
+  .screen { height: 100%; display: flex; flex-direction: column; }
+  /* Clock area */
+  .clockwrap { padding: 6px 26px 8px; }
+  .clock { font-size: 46px; font-weight: 300; letter-spacing: 1px; }
+  .date { font-size: 14px; color: var(--on-surface-dim); margin-top: -2px; }
+  /* App list */
+  .list { flex: 1; padding: 14px 26px 0; overflow: hidden; position: relative; }
+  .row { display: flex; align-items: center; gap: 14px; padding: 9px 0; }
+  .ico {
+    width: 30px; height: 30px; border-radius: 9px; flex: none;
+    display: grid; place-items: center; font-size: 15px; color: #1a1109; font-weight: 700;
+  }
+  .name { font-size: 19px; font-weight: 500; }
+  .sub { font-size: 12px; color: var(--on-surface-dim); }
+  /* Section header */
+  .hdr {
+    font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--accent); margin: 16px 0 4px; font-weight: 700;
+  }
+  .hdr.first { margin-top: 4px; }
+  /* A-Z scroller */
+  .az {
+    position: absolute; right: 6px; top: 96px; bottom: 26px;
+    width: 16px; text-align: center;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: space-between;
+    font-size: 10px; color: var(--on-surface-dim); font-weight: 500;
+    line-height: 1;
+  }
+  .az > * { width: 16px; text-align: center; display: block; }
+  .az b { color: var(--accent); font-weight: 700; }
+  .az .star { color: var(--accent); }
+  /* suggestion visual treatments (per variant) */
+  .sug .name { color: var(--suggest-dim); font-weight: 400; }
+  .sug .ico { opacity: .55; }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex: none; }
+  .divider { height: 1px; background: rgba(255,255,255,.08); margin: 12px 0; }
+  /* Switcher */
+  .switcher {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 4px;
+    background: #fff; color: #111; border-radius: 999px;
+    padding: 6px 8px; box-shadow: 0 8px 30px rgba(0,0,0,.5); z-index: 50;
+    font-family: monospace;
+  }
+  .switcher button {
+    border: 0; background: #eee; width: 30px; height: 30px; border-radius: 50%;
+    font-size: 16px; cursor: pointer;
+  }
+  .switcher .lbl { padding: 0 10px; font-size: 13px; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="caption" id="caption"></div>
+  <div class="phone">
+    <div class="statusbar"><span>9:41</span><span>◔ ▮ ▮▮</span></div>
+    <div class="screen" id="screen"></div>
+  </div>
+</div>
+
+<div class="switcher">
+  <button id="prev">‹</button>
+  <span class="lbl" id="lbl"></span>
+  <button id="next">›</button>
+</div>
+
+<script>
+/* ---- palette helper: icon tile colors ---- */
+const tile = c => `background:${c}`;
+
+/* Shared data */
+const favorites = [
+  { n: "Messages", i: "M", c: "#5aa0e0" },
+  { n: "Phone",    i: "P", c: "#4fbf7a" },
+  { n: "Maps",     i: "M", c: "#e0b24f" },
+  { n: "Gmail",    i: "G", c: "#e05a5a" },
+];
+const suggestions = [
+  { n: "WhatsApp", i: "W", c: "#25d366" },
+  { n: "Camera",   i: "C", c: "#b48ae0" },
+  { n: "Spotify",  i: "S", c: "#4fbf7a" },
+];
+
+const clock = `<div class="clockwrap"><div class="clock">9:41</div><div class="date">Saturday, Aug 1</div></div>`;
+// Full index: ★ anchor (jumps to favorites/top) + complete A–Z, no letters omitted.
+// Letters that currently have apps are highlighted; every letter is still shown.
+const hasApps = new Set(["D","G","M","P","S","W"]);
+const az = `<div class="az"><span class="star">★</span>` +
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(l =>
+    hasApps.has(l) ? `<b>${l}</b>` : `<span>${l}</span>`).join("") +
+  `</div>`;
+
+const rowFull = (a, sug=false) =>
+  `<div class="row ${sug?'sug':''}"><div class="ico" style="${tile(a.c)}">${a.i}</div><div class="name">${a.n}</div></div>`;
+const rowName = (a, sug=false) =>
+  `<div class="row ${sug?'sug':''}">${sug?'<div class="dot"></div>':''}<div class="name">${a.n}</div></div>`;
+
+/* ---- Variants ---- */
+const variants = {
+  A: {
+    name: "Blend (Niagara-faithful)",
+    note: "Suggestions flow directly under favorites with no header — only a subtle dim distinguishes them. Closest to Niagara.",
+    render: () => clock + `<div class="list">` +
+      favorites.map(a=>rowFull(a)).join("") +
+      suggestions.map(a=>rowFull(a,true)).join("") +
+      az + `</div>`
+  },
+  B: {
+    name: "Sectioned (labelled)",
+    note: "Explicit FAVORITES / SUGGESTED headers separate the two zones. Most discoverable; a touch more chrome.",
+    render: () => clock + `<div class="list">` +
+      `<div class="hdr first">Favorites</div>` +
+      favorites.map(a=>rowFull(a)).join("") +
+      `<div class="hdr">Suggested</div>` +
+      suggestions.map(a=>rowFull(a,true)).join("") +
+      az + `</div>`
+  },
+  C: {
+    name: "Minimal (names-only)",
+    note: "No icons. Big typography, wallpaper-forward. Suggestions marked only by a tiny accent dot. Most minimal / most 'different from Niagara'.",
+    render: () => clock + `<div class="list">` +
+      favorites.map(a=>rowName(a)).join("") +
+      `<div class="divider"></div>` +
+      suggestions.map(a=>rowName(a,true)).join("") +
+      az + `</div>`
+  },
+  D: {
+    name: "Fully adaptive (zero favorites)",
+    note: "No manual favorites at all — the whole list is usage-ranked and self-populating. No favorite/suggestion distinction. The zero-config self-adapting home.",
+    render: () => clock + `<div class="list">` +
+      [...favorites, ...suggestions].map(a=>rowFull(a)).join("") +
+      az + `</div>`
+  },
+};
+
+const order = ["A","B","C","D"];
+function current() {
+  const p = new URLSearchParams(location.search).get("variant");
+  return order.includes(p) ? p : "B"; // B — Sectioned won; default to it
+}
+function render() {
+  const k = current();
+  const v = variants[k];
+  document.getElementById("screen").innerHTML = v.render();
+  document.getElementById("lbl").textContent = `${k} — ${v.name}`;
+  document.getElementById("caption").textContent = v.note;
+}
+function go(dir) {
+  const i = order.indexOf(current());
+  const k = order[(i + dir + order.length) % order.length];
+  const u = new URL(location); u.searchParams.set("variant", k);
+  history.replaceState(null, "", u); render();
+}
+document.getElementById("prev").onclick = () => go(-1);
+document.getElementById("next").onclick = () => go(1);
+document.addEventListener("keydown", e => {
+  const t = e.target.tagName;
+  if (t === "INPUT" || t === "TEXTAREA" || e.target.isContentEditable) return;
+  if (e.key === "ArrowLeft") go(-1);
+  if (e.key === "ArrowRight") go(1);
+});
+render();
+</script>
+</body>
+</html>
